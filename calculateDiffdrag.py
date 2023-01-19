@@ -3,7 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class Satellite(object):
-    def __init__(self, a, e, i, om, OM, nu, mu):
+    MASS = 3 #kg
+    DRAG_COEFF = 2.5 # 1
+    def __init__(self, a, e, i, om, OM, nu, mu, drag_area):
         self.a = a
         self.e = e
         self.i = i
@@ -11,11 +13,10 @@ class Satellite(object):
         self.OM = OM
         self._nu = nu
         self.mu = mu
-        self.getCart()
-
-    def getVelocity(self):
-        pass
-        return
+        self.drag_area = drag_area
+        self.rho = self.calcRho()
+        self.getStateVectors()
+        self.getDragVector()
 
     @property
     def nu(self):
@@ -24,9 +25,9 @@ class Satellite(object):
     @nu.setter
     def nu(self, val):
         self._nu = val
-        self.getCart()
+        self.getStateVectors()
 
-    def getCart(self):
+    def getStateVectors(self):
         p = self.a * (1 - self.e**2)
         r = p / (1 + self.e*np.cos(self.nu))
 
@@ -44,10 +45,30 @@ class Satellite(object):
         self.rr = np.matmul(R, rr_pf)
         self.vv = np.matmul(R, vv_pf)
 
+    def getDragVector(self):
+        f = self.getAtmosDragForce()
+        d_vec = - (f/self.MASS) * self.vv/np.linalg.norm(self.vv)
+        self.drag_vec = d_vec
+        return d_vec
 
+    @property
+    def rho(self):
+        return self._rho
 
-def atmosDragForce(rho, c_d, a, v):
-    return .5*rho*c_d*a*v**2
+    @rho.getter
+    def rho(self):
+        self.calcRho()
+        return self._rho
+    @rho.setter
+    def rho(self, val):
+        self._rho = val
+
+    def calcRho(self):
+        # TODO: Write code for atmospheric model?
+        return 2.51e-14
+
+    def getAtmosDragForce(self):
+        return .5*self.rho*self.DRAG_COEFF*self.drag_area*np.linalg.norm(self.vv)**2
 
 # define our parameters
 H = 540 # km
@@ -66,17 +87,11 @@ visviva = lambda r,a: mu_earth*((2/r) - (1/a))
 # calculate force differential
 v = visviva(a,a)
 
-f_low = atmosDragForce(rho, c_d, low_drag_area, v)
-f_high = atmosDragForce(rho, c_d, high_drag_area, v)
-
-print(f_low)
-print(f_high)
-print(f_high-f_low)
-
 cubesat_mass = 3 # kg
 # init
 r_0_1 = np.array([540, 0, 0])
 
-sat = Satellite(a, 0, 0, 0, 0, 0, mu_earth)
+sat = Satellite(a, 0, 0, 0, 0, 0, mu_earth, low_drag_area)
 print(sat.rr)
 print(sat.vv)
+print(sat.drag_vec)
