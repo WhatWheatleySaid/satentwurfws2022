@@ -1,6 +1,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.integrate import RK45
 
 class Satellite(object):
     MASS = 3 #kg
@@ -70,17 +71,29 @@ class Satellite(object):
     def getAtmosDragForce(self):
         return .5*self.rho*self.DRAG_COEFF*self.drag_area*np.linalg.norm(self.vv)**2
 
+    def calcNu(self):
+        h = np.cross(self.rr, self.vv)
+        e = np.cross(self.vv, h)/self.mu - self.rr/np.linalg.norm(self.rr)
+        if np.dot(self.rr, self.vv) >= 0:
+            self._nu = np.arccos(np.dot(e,self.rr)/(np.linalg.norm(self.e)*np.linalg.norm(self.rr) ))
+        else:
+            self._nu = 2*np.pi - np.arccos(np.dot(e,r)/(np.linalg.norm(self.e)*np.linalg.norm(self.rr) ))
+        return self._nu
+
+    def calcCircularAngle(self):
+        return np.sin(self.rr[1] / self.rr[0])
+
 # define our parameters
-H = 540 # km
-R_earth = 6371 #km
-a = R_earth + H #km
+H = 540*1e3 # m
+R_earth = 6371*1e3 #m
+a = R_earth + H #m
 c_d = 2.5
-low_drag_area = 17025/1e6 #m**2
-high_drag_area = 52640/1e6 #m**2
+low_drag_area = 17025/1e6 #m**2 # XXX: unit!
+high_drag_area = 52640/1e6 #m**2 # # XXX: unit
 
-rho = 2.51e-14 # kg/m**3
+rho = 2.51e-14 # kg/m**3 # XXX wrong unit or convert other units
 
-mu_earth = 0.39860*1e6 # km**3/s**2
+mu_earth = 3.986004418*1e14 # m**3/s**2
 
 visviva = lambda r,a: mu_earth*((2/r) - (1/a))
 
@@ -88,10 +101,61 @@ visviva = lambda r,a: mu_earth*((2/r) - (1/a))
 v = visviva(a,a)
 
 cubesat_mass = 3 # kg
-# init
-r_0_1 = np.array([540, 0, 0])
 
-sat = Satellite(a, 0, 0, 0, 0, 0, mu_earth, low_drag_area)
-print(sat.rr)
-print(sat.vv)
-print(sat.drag_vec)
+sat1 = Satellite(a, 0, 0, 0, 0, 0, mu_earth, low_drag_area)
+sat2 = Satellite(a, 0, 0, 0, 0, 0, mu_earth, high_drag_area)
+
+initial_state = np.array([sat1.rr[0], sat1.rr[1], sat1.rr[2],
+                         sat1.vv[0], sat1.vv[1], sat1.vv[2]])
+def rhsfun(t, y, sat):
+    r = y[0:3]
+    v = y[3:]
+    drag_f = sat.getAtmosDragForce()
+    drag_accel_vec = (drag_f / sat.MASS) * (-v/np.linalg.norm(v))
+    dr = v
+    dv = -(sat.mu*r)/(np.linalg.norm(r,)**3) + drag_accel_vec
+    dy = np.array([
+              dr[0], dr[1], dr[2],
+              dv[0], dv[1], dv[2]])
+    return dy
+
+end_time_s = 1*7*24*60*60
+integrator1 = RK45(lambda t,y: rhsfun(t, y, sat1), 0, initial_state, end_time_s, max_step=60)
+integrator2 = RK45(lambda t,y: rhsfun(t, y, sat2), 0, initial_state, end_time_s, max_step=60)
+ts1 = []
+ys1 = []
+nu1 = []
+while 1:
+    integrator1.step()
+    ts1.append(integrator1.t)
+    ys1.append(integrator1.y)
+    sat1.rr = np.array(integrator1.y[0:3])
+    nu1.append(sat1.calcCircularAngle())
+    assert integrator1.status != 'failed'
+    if integrator1.status == 'finished':
+        ys1 = np.array(ys1)
+        ts1 = np.array(ts1)
+        break
+ts2 = []
+ys2 = []
+nu2 = []
+while 1:
+    integrator2.step()
+    ts2.append(integrator2.t)
+    ys2.append(integrator2.y)
+    sat2.rr = np.array(integrator2.y[0:3])
+    nu2.append(sat2.calcCircularAngle())
+    assert integrator2.status != 'failed'
+    if integrator2.status == 'finished':
+        ys2 = np.array(ys2)
+        ts2 = np.array(ts2)
+        break
+
+xs1 = ys1[:,0:3]
+vs1 = ys1[:,3:]
+xs2 = ys2[:,0:3]
+vs2 = ys2[:,3:]
+# ax = plt.figure().add_subplot(projection='3d')
+# ax.plot(xs1[:,0], xs1[:,1], xs1[:,2])
+plt.plot(ts1, nu1)
+plt.show()
